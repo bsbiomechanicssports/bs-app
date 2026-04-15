@@ -519,7 +519,7 @@ tbody tr:hover td { background: var(--gray-50); }
     <div class="login-logo">
       <img src="logo.png" alt="BS Biomechanics" id="login-logo-img" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='flex'">
       <div id="login-logo-fallback" style="display:none;width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#0a1628,#1a5fad);margin:0 auto;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#00c8ff;box-shadow:0 0 24px rgba(0,200,255,0.3)">BS</div>
-      <div class="brand-name">BS BİOMECHANİCS SPORTS</div>
+      <div class="brand-name">BS BIOMECHANICS SPORTS</div>
       <div class="brand-sub">THE SCIENCE BEHIND EVERY MOVE</div>
     </div>
     <div class="login-error" id="login-error"></div>
@@ -663,6 +663,22 @@ tbody tr:hover td { background: var(--gray-50); }
         <div class="topbar-left"><span class="topbar-title">⏳ Onay Bekleyenler</span></div>
       </div>
       <div class="content" id="pending-content"></div>
+    </div>
+
+    <!-- COACH PERSONAL VIEW -->
+    <div id="view-coachpersonal" class="hidden">
+      <div class="topbar">
+        <div class="topbar-left">
+          <button class="btn btn-ghost btn-sm" onclick="showView('dashboard')">← Geri</button>
+          <span class="topbar-title" id="coachpersonal-title">—</span>
+          <div class="date-filter">
+            <label>DAN</label><input type="date" id="cp-from" onchange="renderCoachPersonalView(currentCoachViewId)">
+            <label>A</label><input type="date" id="cp-to" onchange="renderCoachPersonalView(currentCoachViewId)">
+            <button class="btn btn-ghost btn-sm" onclick="clearDateFilter('cp-from','cp-to',()=>renderCoachPersonalView(currentCoachViewId))">✕</button>
+          </div>
+        </div>
+      </div>
+      <div class="content" id="coachpersonal-content"></div>
     </div>
   </div>
 </div>
@@ -881,7 +897,7 @@ window.dispatchEvent(new Event('firebase-ready'));
 
 <script>
 // ════════════════════════════════════════════════════════════════
-// BS BİOMECHANİCS SPORTS — APP ENGINE
+// BS BIOMECHANICS SPORTS — APP ENGINE
 // ════════════════════════════════════════════════════════════════
 
 // ── State ────────────────────────────────────────────────────────
@@ -890,6 +906,7 @@ let currentProfile = null;   // Firestore user doc
 let currentCoachId = null;   // viewing which coach
 let currentAthleteId = null;
 let currentGroupId = null;
+let currentCoachViewId = null; // antrenör kişisel sayfası
 let pendingTransferData = null;
 let pendingRequestId = null;
 let attMonth = new Date(); attMonth.setDate(1);
@@ -1103,6 +1120,25 @@ function entriesForCoach(coachId, allEntries) {
   });
 }
 
+// Antrenörün kişisel gelişim skoru: o antrenörün koçluk yaptığı tüm kayıtlar üzerinden
+function coachPersonalPerf(coachId, allEntries) {
+  const myEntries = entriesForCoach(coachId, allEntries);
+  // Bu kayıtlara ait sporcular
+  const athIds = [...new Set(myEntries.map(e=>e.athleteId))];
+  if (!athIds.length) return { avg:null, athleteCount:0 };
+  const scores = [];
+  athIds.forEach(athId => {
+    const athEntries = myEntries.filter(e=>e.athleteId===athId);
+    const avg = athleteAvg(athId, athEntries);
+    if (avg !== null) scores.push(avg);
+  });
+  if (!scores.length) return { avg:null, athleteCount:athIds.length };
+  return {
+    avg: scores.reduce((a,b)=>a+b,0)/scores.length,
+    athleteCount: athIds.length
+  };
+}
+
 function groupPerf(groupId, filteredEntries) {
   const athletes = Object.values(cache.athletes).filter(a=>a.groupId===groupId);
   const entries = filteredEntries ? filteredEntries.filter(e=>e.groupId===groupId||(cache.athletes[e.athleteId]?.groupId===groupId)) : entriesForGroup(groupId);
@@ -1159,6 +1195,23 @@ function buildSidebar() {
     }
   }
 
+  // Yönetici ise antrenörleri listele (kişisel skorlarıyla)
+  if (isAdmin()) {
+    const coaches = Object.values(cache.users).filter(u=>u.role==='coach')
+      .sort((a,b)=>(a.name||'').localeCompare(b.name||'','tr'));
+    if (coaches.length) {
+      html += `<div class="nav-section-label">Antrenörler</div>`;
+      coaches.forEach(c => {
+        const p = coachPersonalPerf(c.id);
+        const badge = p.avg===null ? `<span class="nav-badge neu">—</span>`
+          : `<span class="nav-badge ${p.avg>0?'pos':'neg'}">${p.avg>=0?'+':''}${p.avg.toFixed(1)}%</span>`;
+        html += `<button class="nav-item ${currentCoachViewId===c.id&&currentView==='coachpersonal'?'active':''}" onclick="showCoachPersonalView('${c.id}')">
+          <span class="nav-icon">👤</span><span style="flex:1;text-align:left">${c.name}</span>${badge}
+        </button>`;
+      });
+    }
+  }
+
   html += `<div class="nav-section-label">Gruplar</div>`;
   const myGroupIds = coachGroupIds();
   const myGroups = Object.values(cache.groups).filter(g => isAdmin() || myGroupIds.includes(g.id));
@@ -1186,7 +1239,7 @@ function navItem(view, icon, label, extra='') {
 // ── VIEW ROUTER ───────────────────────────────────────────────────
 function showView(view, id) {
   currentView = view;
-  const views = ['dashboard','coach','athlete','profile','users','groups','pending'];
+  const views = ['dashboard','coach','athlete','profile','users','groups','pending','coachpersonal'];
   views.forEach(v => document.getElementById('view-'+v)?.classList.add('hidden'));
   document.getElementById('view-'+view)?.classList.remove('hidden');
   buildSidebar();
@@ -1195,6 +1248,15 @@ function showView(view, id) {
   else if (view==='users') renderUsers();
   else if (view==='groups') renderGroups();
   else if (view==='pending') renderPending();
+}
+function showCoachPersonalView(coachId) {
+  currentCoachViewId = coachId;
+  currentView = 'coachpersonal';
+  const views = ['dashboard','coach','athlete','profile','users','groups','pending','coachpersonal'];
+  views.forEach(v => document.getElementById('view-'+v)?.classList.add('hidden'));
+  document.getElementById('view-coachpersonal')?.classList.remove('hidden');
+  buildSidebar();
+  renderCoachPersonalView(coachId);
 }
 function showGroupView(groupId) {
   currentGroupId = groupId;
@@ -1837,11 +1899,32 @@ async function saveGroup() {
 }
 async function deleteGroupConfirm(groupId) {
   const g = cache.groups[groupId];
-  if (!confirm(`"${g?.name}" grubu silinecek. Sporcular ve kayıtlar kalacak. Emin misiniz?`)) return;
-  const { db, doc, deleteDoc } = window._fb;
-  await deleteDoc(doc(db,'groups',groupId));
+  const athCount = Object.values(cache.athletes).filter(a=>a.groupId===groupId).length;
+  const msg = athCount > 0
+    ? `"${g?.name}" grubu ve içindeki ${athCount} sporcu (tüm süre kayıtları ve yoklamalar dahil) silinecek. Bu işlem geri alınamaz. Emin misiniz?`
+    : `"${g?.name}" grubu silinecek. Emin misiniz?`;
+  if (!confirm(msg)) return;
+  const { db, doc, deleteDoc, collection, getDocs, query, where, writeBatch } = window._fb;
+  const batch = writeBatch(db);
+  // Gruptaki sporcuları bul ve sil
+  const athIds = Object.values(cache.athletes).filter(a=>a.groupId===groupId).map(a=>a.id);
+  // Sporcuların entry ve attendance kayıtlarını sil
+  for (const athId of athIds) {
+    const athEntries = cache.entries.filter(e=>e.athleteId===athId);
+    const athAtt = cache.attendance.filter(a=>a.athleteId===athId);
+    athEntries.forEach(e => batch.delete(doc(db,'entries',e.id)));
+    athAtt.forEach(a => batch.delete(doc(db,'attendance',a.id)));
+    batch.delete(doc(db,'athletes',athId));
+  }
+  // Grubu sil
+  batch.delete(doc(db,'groups',groupId));
+  await batch.commit();
+  // Cache temizle
+  athIds.forEach(id => { delete cache.athletes[id]; });
+  cache.entries = cache.entries.filter(e=>!athIds.includes(e.athleteId));
+  cache.attendance = cache.attendance.filter(a=>!athIds.includes(a.athleteId));
   delete cache.groups[groupId];
-  notify('Grup silindi','info'); renderGroups(); buildSidebar();
+  notify('Grup ve sporcular silindi','info'); renderGroups(); buildSidebar();
   if (currentGroupId===groupId) showView('dashboard');
 }
 
@@ -1995,6 +2078,117 @@ async function confirmTransfer() {
   const newGroup = cache.groups[newGroupId];
   notify(`Transfer tamamlandı → ${newGroup?.name||'yeni grup'}✓`,'success');
   buildSidebar(); renderAthleteView();
+}
+
+// ── COACH PERSONAL VIEW ──────────────────────────────────────────
+function renderCoachPersonalView(coachId) {
+  const coach = cache.users[coachId]; if (!coach) return;
+  document.getElementById('coachpersonal-title').textContent = '👤 ' + coach.name;
+  const { from, to } = getRange('cp-from','cp-to');
+  const filteredEntries = cache.entries.filter(e=>inRange(e.date,from,to));
+  const myEntries = entriesForCoach(coachId, filteredEntries);
+  const p = coachPersonalPerf(coachId, filteredEntries);
+  const perfLabel = p.avg===null ? '—' : (p.avg>=0?'+':'')+p.avg.toFixed(2)+'%';
+  const perfClr = p.avg===null ? '' : p.avg>=0 ? 'pos' : 'neg';
+
+  // Antrenörün grupları
+  const myGroups = Object.values(cache.groups).filter(g=>(g.coachIds||[]).includes(coachId));
+  // Antrenörün sporcuları (tüm entry'lerdeki sporcu id'leri)
+  const athIds = [...new Set(myEntries.map(e=>e.athleteId))];
+  const athletes = athIds.map(id=>cache.athletes[id]).filter(Boolean);
+
+  // Branş özeti
+  const allEvMap = {};
+  athletes.forEach(ath => {
+    const athEntries = myEntries.filter(e=>e.athleteId===ath.id);
+    getAthleteEvents(ath.id, athEntries).forEach(ev => {
+      if (ev.improve===null) return;
+      if (!allEvMap[ev.event]) allEvMap[ev.event]={event:ev.event,imps:[],count:0};
+      allEvMap[ev.event].imps.push(ev.improve);
+      allEvMap[ev.event].count += ev.count;
+    });
+  });
+  const eventSummary = Object.values(allEvMap).map(e=>({
+    event:e.event, dataCount:e.imps.length, entryCount:e.count,
+    avg: e.imps.reduce((a,b)=>a+b,0)/e.imps.length
+  }));
+
+  let html = '';
+
+  // Metrik kartlar
+  html += `<div class="metric-grid">
+    <div class="metric-card accent"><div class="metric-label">Sporcu</div><div class="metric-value cyan">${athletes.length}</div></div>
+    <div class="metric-card"><div class="metric-label">Kayıt</div><div class="metric-value">${myEntries.length}</div></div>
+    <div class="metric-card ${p.avg===null?'':p.avg>=0?'green':'red'}">
+      <div class="metric-label">Kişisel Gelişim Skoru</div>
+      <div class="metric-value ${perfClr}">${perfLabel}</div>
+      <div class="metric-sub">${p.avg===null?'veri yok':'koçluk yapılan tüm kayıtlar'}</div>
+    </div>
+    <div class="metric-card"><div class="metric-label">Grup</div><div class="metric-value">${myGroups.length}</div></div>
+  </div>`;
+
+  // Profil kartı
+  html += `<div class="card mb-4" style="padding:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--navy-700);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--cyan-500);overflow:hidden;flex-shrink:0">
+      ${coach.photoURL?`<img src="${coach.photoURL}" style="width:100%;height:100%;object-fit:cover">`:`<span>${initials(coach.name)}</span>`}
+    </div>
+    <div>
+      <div style="font-size:16px;font-weight:700;color:var(--navy-700)">${coach.name}</div>
+      <div style="font-size:11px;color:var(--gray-400)">${coach.title||''} ${coach.email?'· '+coach.email:''}</div>
+      <div style="margin-top:4px">${myGroups.map(g=>`<span class="event-tag" style="margin-right:4px">${g.name}</span>`).join('')||'<span class="text-muted text-sm">Grup atanmamış</span>'}</div>
+    </div>
+    ${p.avg!==null?`<div style="margin-left:auto;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:${p.avg>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${p.avg>=0?'+':''}${p.avg.toFixed(2)}%</div>
+      <div style="font-size:10px;color:var(--gray-400)">Kişisel Gelişim Skoru</div>
+    </div>`:''}
+  </div>`;
+
+  // Branş özeti
+  if (eventSummary.length) {
+    html += `<div class="table-wrap mb-4">
+      <div class="card-header"><h2>Branş / Mesafe Bazlı Gelişim</h2>
+        <span class="text-muted text-xs">Bu antrenörün koçluk yaptığı tüm kayıtlar</span>
+      </div>
+      <table><thead><tr><th>Branş</th><th>Sporcu</th><th>Kayıt</th><th>Ort. Gelişim</th><th>Trend</th></tr></thead><tbody>`;
+    eventSummary.forEach(es => {
+      const pill = `<span class="pill ${es.avg>0?'pill-pos':es.avg<0?'pill-neg':'pill-neu'}">${es.avg>=0?'+':''}${es.avg.toFixed(2)}%</span>`;
+      const bar = Math.min(100,Math.abs(es.avg)*6);
+      html += `<tr>
+        <td><span class="event-tag">${es.event}</span></td>
+        <td class="text-mono">${es.dataCount}</td>
+        <td class="text-mono">${es.entryCount}</td>
+        <td>${pill}</td>
+        <td><div class="progress-bar"><div class="progress-fill" style="width:${bar}%;background:${es.avg>=0?'var(--green)':'var(--red)'}"></div></div></td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // Sporcu listesi
+  html += `<div class="table-wrap">
+    <div class="card-header"><h2>Sporcular</h2>
+      <span class="text-muted text-xs">Bu antrenörün koçluk yaptığı sporcular</span>
+    </div>
+    <table><thead><tr><th>Sporcu</th><th>Grup</th><th>Kayıt</th><th>Gelişim</th><th>Katılım</th></tr></thead><tbody>`;
+  athletes.sort((a,b)=>(a.name||'').localeCompare(b.name||'','tr')).forEach(ath => {
+    const athEntries = myEntries.filter(e=>e.athleteId===ath.id);
+    const avg = athleteAvg(ath.id, athEntries);
+    const att = getAthleteAttStats(ath.id);
+    const group = cache.groups[ath.groupId];
+    const pill = avg===null?'<span class="text-muted text-sm">Veri yok</span>'
+      :`<span class="pill ${avg>0?'pill-pos':avg<0?'pill-neg':'pill-neu'}">${avg>=0?'+':''}${avg.toFixed(2)}%</span>`;
+    const attStr = att.total===0?'<span class="text-muted">—</span>':`<span class="text-mono" style="color:var(--green)">${att.presentPct.toFixed(0)}%</span>`;
+    html += `<tr class="tr-clickable" onclick="showAthleteView('${ath.id}');currentGroupId='${ath.groupId}'">
+      <td style="font-weight:600;color:var(--navy-400)">${ath.name} <span class="text-muted">→</span></td>
+      <td class="text-sm text-muted">${group?.name||'—'}</td>
+      <td class="text-mono">${athEntries.length}</td>
+      <td>${pill}</td><td>${attStr}</td>
+    </tr>`;
+  });
+  if (!athletes.length) html += `<tr><td colspan="5"><div class="empty"><div class="empty-icon">🏊</div><p>Henüz kayıt yok.</p></div></td></tr>`;
+  html += `</tbody></table></div>`;
+
+  document.getElementById('coachpersonal-content').innerHTML = html;
 }
 
 // ── PENDING REQUESTS ──────────────────────────────────────────────
@@ -2235,7 +2429,7 @@ function toggleDetailRows(row) {
 
 // expose to HTML onclick
 window.doLogin=doLogin; window.doLogout=doLogout;
-window.showView=showView; window.showGroupView=showGroupView;
+window.showView=showView; window.showGroupView=showGroupView; window.showCoachPersonalView=showCoachPersonalView; window.renderCoachPersonalView=renderCoachPersonalView;
 window.showAthleteView=showAthleteView; window.goBackFromAthlete=goBackFromAthlete;
 window.switchCoachTab=switchCoachTab;
 window.openModal=openModal; window.closeModal=closeModal; window.bgClose=bgClose;
