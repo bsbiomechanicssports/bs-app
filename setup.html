@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BS Biomechanics — İlk Kurulum</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#050e1f,#0d1f3c,#1a3a6e);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;border-radius:16px;padding:36px 32px;max-width:440px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,0.4)}
+h1{font-size:20px;font-weight:800;color:#0a1628;margin-bottom:4px}
+p{font-size:12px;color:#64748b;margin-bottom:22px}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+label{font-size:11px;font-weight:500;color:#475569}
+input{border:1px solid #e2e8f0;border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:border .15s}
+input:focus{border-color:#00c8ff;box-shadow:0 0 0 3px rgba(0,200,255,0.12)}
+button{width:100%;padding:12px;background:linear-gradient(135deg,#0d1f3c,#1a3a6e);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px;transition:all .2s}
+button:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(10,22,40,0.35)}
+.logo{text-align:center;margin-bottom:24px}
+.logo-circle{width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#0a1628,#1a5fad);margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#00c8ff;box-shadow:0 0 24px rgba(0,200,255,0.3)}
+.brand{font-size:13px;font-weight:700;color:#0a1628}
+.tag{font-size:10px;color:#00c8ff;letter-spacing:.08em}
+.msg{padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:14px;display:none}
+.msg.error{background:#fef2f2;border:1px solid #ef4444;color:#ef4444}
+.msg.success{background:#f0fdf4;border:1px solid #10b981;color:#10b981}
+.msg.show{display:block}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-circle">BS</div>
+    <div class="brand">BS BİOMECHANİCS SPORTS</div>
+    <div class="tag">THE SCIENCE BEHIND EVERY MOVE</div>
+  </div>
+  <h1>Süper Admin Hesabı Oluştur</h1>
+  <p>Bu sayfa yalnızca bir kez kullanılır. Hesap oluşturulduktan sonra silinmeli veya erişim kısıtlanmalıdır.</p>
+  <div class="msg" id="msg"></div>
+  <div class="field"><label>Ad Soyad</label><input id="name" placeholder="Burçin SAKALLAR"></div>
+  <div class="field"><label>E-posta</label><input type="email" id="email" placeholder="burcin@maviaslanlar.com"></div>
+  <div class="field"><label>Şifre (en az 6 karakter)</label><input type="password" id="pw" placeholder="Güçlü bir şifre belirleyin"></div>
+  <div class="field"><label>Şifre (tekrar)</label><input type="password" id="pw2" placeholder="Şifreyi tekrar girin"></div>
+  <button onclick="createSuperAdmin()" id="btn">Hesabı Oluştur</button>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCrHqyFRKpWcpOG0vg89MOd2EhYKWF_P-Q",
+  authDomain: "bs-biomechanics.firebaseapp.com",
+  projectId: "bs-biomechanics",
+  storageBucket: "bs-biomechanics.firebasestorage.app",
+  messagingSenderId: "265775166619",
+  appId: "1:265775166619:web:4ca24a84f62dadf263023e"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+window.createSuperAdmin = async function() {
+  const name  = document.getElementById('name').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const pw    = document.getElementById('pw').value;
+  const pw2   = document.getElementById('pw2').value;
+  const msg   = document.getElementById('msg');
+  const btn   = document.getElementById('btn');
+
+  msg.className='msg'; msg.textContent='';
+  if (!name||!email||!pw) { showMsg('Tüm alanları doldurun.','error'); return; }
+  if (pw!==pw2) { showMsg('Şifreler eşleşmiyor.','error'); return; }
+  if (pw.length<6) { showMsg('Şifre en az 6 karakter olmalı.','error'); return; }
+
+  btn.textContent='Oluşturuluyor...'; btn.disabled=true;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pw);
+    await setDoc(doc(db,'users',cred.user.uid), {
+      id: cred.user.uid, name, email,
+      role: 'superadmin', title: 'Süper Admin',
+      createdAt: serverTimestamp()
+    });
+    showMsg('✅ Hesap oluşturuldu! Şimdi index.html\'e giriş yapabilirsiniz.','success');
+    btn.textContent='Tamamlandı ✓';
+  } catch(e) {
+    btn.textContent='Hesabı Oluştur'; btn.disabled=false;
+    showMsg('Hata: '+e.message,'error');
+  }
+};
+
+function showMsg(text, type) {
+  const el=document.getElementById('msg');
+  el.textContent=text; el.className=`msg ${type} show`;
+}
+</script>
+</body>
+</html>
